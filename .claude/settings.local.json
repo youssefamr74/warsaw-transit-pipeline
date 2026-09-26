@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(java -version)",
+      "Bash(docker --version)",
+      "Bash(git --version)",
+      "Bash(py --version)",
+      "Bash(where python *)",
+      "PowerShell(wsl.exe -e bash -lc \"python3 --version; which python3; git --version; docker --version; java -version\")",
+      "PowerShell(wsl.exe -e bash -lc \"python3 --version\")",
+      "PowerShell(wsl.exe -e bash -lc \"git --version\")",
+      "PowerShell(wsl.exe -e bash -lc \"docker --version\")",
+      "PowerShell(wsl.exe -e bash -lc \"java -version 2>&1; which java; echo JAVA_HOME=\\\\$JAVA_HOME\")",
+      "PowerShell(wsl.exe -e bash -lc \"java -version\")",
+      "PowerShell(wsl.exe -e bash -lc \"cd /home/ykhalil/projects/warsaw-transit-pipeline && python3 -m venv .venv && .venv/bin/pip install -q --upgrade pip && .venv/bin/pip install -q -r requirements.txt && .venv/bin/pip freeze | head -n 30\")",
+      "PowerShell(wsl.exe -e bash -lc \"sudo -n apt install -y python3.10-venv 2>&1\")"
+    ]
+  }
+}
