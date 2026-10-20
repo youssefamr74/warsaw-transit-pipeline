@@ -11,7 +11,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
-
+import signal
 import requests
 from confluent_kafka import Producer
 from dotenv import load_dotenv
@@ -149,7 +149,11 @@ def poll_once(producer: Producer) -> None:
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+def handle_sigterm(signum, frame):
+    raise KeyboardInterrupt
+
 def main() -> None:
+    signal.signal(signal.SIGTERM, handle_sigterm)
     if not API_KEY:
         log.error("WARSAW_API_KEY is not set, exiting")
         sys.exit(1)

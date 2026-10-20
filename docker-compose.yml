@@ -33,6 +33,19 @@ services:
       JVM_OPTS: "-Xms64M -Xmx256M"
     depends_on:
       - kafka
-
+  poller:
+    build: ./ingestion
+    container_name: poller
+    env_file: .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - kafka
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 volumes:
   kafka-data:
