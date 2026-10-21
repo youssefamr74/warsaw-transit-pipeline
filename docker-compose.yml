@@ -94,12 +94,40 @@ services:
       --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.1,io.delta:delta-spark_2.13:4.0.1
       --conf spark.jars.ivy=/opt/ivy
       --conf spark.driver.host=bronze-job
+      --conf spark.cores.max=2
+      --conf spark.executor.memory=1g
       /opt/jobs/bronze_positions.py
     ports:
       - "4041:4040"
     depends_on:
       - spark-master
       - kafka
+    restart: unless-stopped
+    volumes:
+      - ./spark/jobs:/opt/jobs
+      - ./data/lake:/opt/lake
+      - ivy-cache:/opt/ivy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  silver-job:
+    image: apache/spark:4.0.1-python3
+    container_name: silver-job
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --packages io.delta:delta-spark_2.13:4.0.1
+      --conf spark.jars.ivy=/opt/ivy
+      --conf spark.driver.host=silver-job
+      --conf spark.cores.max=2
+      --conf spark.executor.memory=1g
+      /opt/jobs/silver_positions.py
+    ports:
+      - "4042:4040"
+    depends_on:
+      - spark-master
     restart: unless-stopped
     volumes:
       - ./spark/jobs:/opt/jobs
