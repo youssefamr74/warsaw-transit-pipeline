@@ -22,6 +22,9 @@ x-airflow-common: &airflow-common
   depends_on: &airflow-common-depends-on
     airflow-postgres:
       condition: service_healthy
+  dns:
+    - 1.1.1.1
+    - 8.8.8.8
 services:
   kafka:
     image: apache/kafka:4.1.1
@@ -71,6 +74,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
   spark-master:
     image: apache/spark:4.0.1-python3
     container_name: spark-master
@@ -183,7 +189,7 @@ services:
       - -c
       - |
         mkdir -p /opt/airflow/{logs,dags,plugins,config}
-        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/{logs,dags,plugins,config}
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
         /entrypoint airflow version
     environment:
       <<: *airflow-common-env

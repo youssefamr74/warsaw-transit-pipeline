@@ -21,9 +21,8 @@ from dotenv import load_dotenv
 # ---------------------------------------------------------------------------
 load_dotenv()
 
-API_KEY = os.getenv("WARSAW_API_KEY")
-API_URL = "https://api.um.warszawa.pl/api/action/busestrams_get/"
-RESOURCE_ID = "f2e5503e-927d-4ad3-9500-4ab9e55deb59"
+API_TOKEN = os.getenv("WARSAW_API_TOKEN")
+API_URL = "https://dane.um.warszawa.pl/api/action/get_ztm_lokalizacja_pojazdow"
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "vehicle-positions")
@@ -32,6 +31,9 @@ POLL_INTERVAL_SECONDS = float(os.getenv("POLL_INTERVAL_SECONDS", "10"))
 VEHICLE_TYPES = {1: "bus", 2: "tram"}  # API type code -> our label
 MAX_RETRIES = 3
 REQUEST_TIMEOUT_SECONDS = 10
+
+FAILURES_BEFORE_BACKOFF = 3
+MAX_BACKOFF_SECONDS = 600
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -46,23 +48,27 @@ log = logging.getLogger("poller")
 delivery_stats = {"ok": 0, "failed": 0}
 
 def safe(error: Exception) -> str:
-    """Return the error message with the API key removed."""
+    """Return the error message with the API token removed."""
     text = str(error)
-    return text.replace(API_KEY, "***") if API_KEY else text
+    return text.replace(API_TOKEN, "***") if API_TOKEN else text
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
 def fetch_vehicles(type_code: int) -> list[dict]:
-    params = {"resource_id": RESOURCE_ID, "apikey": API_KEY, "type": type_code}
+    headers = {"Authorization": API_TOKEN}
+    body = {"type": type_code}
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = requests.get(API_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+            response = requests.post(API_URL, json=body, headers=headers,
+                                     timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
             data = response.json()
-            result = data.get("result")
+
+            # New API returns a plain list; keep the old {"result": [...]} shape working too
+            result = data.get("result") if isinstance(data, dict) else data
             if not isinstance(result, list):
-                raise ValueError(f"API returned an error: {result}")
+                raise ValueError(f"API returned an error: {data}")
             return result
         except (requests.RequestException, ValueError) as e:
             if attempt == MAX_RETRIES:
@@ -120,7 +126,7 @@ def publish(producer: Producer, records: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # One cycle
 # ---------------------------------------------------------------------------
-def poll_once(producer: Producer) -> None:
+def poll_once(producer: Producer) -> bool:
     ingested_at = datetime.now(timezone.utc).isoformat()
     poll_id = str(uuid.uuid4())
     counts = {}
@@ -144,7 +150,15 @@ def poll_once(producer: Producer) -> None:
         status, counts.get("bus"), counts.get("tram"),
         delivery_stats["ok"], delivery_stats["failed"],
     )
+    return any(count > 0 for count in counts.values())
 
+
+def wait_time(consecutive_failures: int) -> float:
+    """Normal interval while healthy, growing waits during an outage."""
+    if consecutive_failures < FAILURES_BEFORE_BACKOFF:
+        return POLL_INTERVAL_SECONDS
+    extra = consecutive_failures - FAILURES_BEFORE_BACKOFF
+    return min(60 * 2 ** extra, MAX_BACKOFF_SECONDS)
 
 # ---------------------------------------------------------------------------
 # Main loop
@@ -154,8 +168,8 @@ def handle_sigterm(signum, frame):
 
 def main() -> None:
     signal.signal(signal.SIGTERM, handle_sigterm)
-    if not API_KEY:
-        log.error("WARSAW_API_KEY is not set, exiting")
+    if not API_TOKEN:
+        log.error("WARSAW_API_TOKEN is not set, exiting")
         sys.exit(1)
 
     log.info(
@@ -165,16 +179,27 @@ def main() -> None:
     producer = build_producer()
 
     try:
+        consecutive_failures = 0
         while True:
             started = time.monotonic()
+            ok = False
             try:
-                poll_once(producer)
+                ok = poll_once(producer)
             except Exception:
                 log.exception("unexpected error in poll cycle")
 
+            if ok:
+                if consecutive_failures >= FAILURES_BEFORE_BACKOFF:
+                    log.info("API is back after %s failed polls", consecutive_failures)
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                if consecutive_failures >= FAILURES_BEFORE_BACKOFF:
+                    log.warning("API unavailable, %s failed polls in a row, next try in %ss",
+                                consecutive_failures, wait_time(consecutive_failures))
+
             elapsed = time.monotonic() - started
-            sleep_for = max(0, POLL_INTERVAL_SECONDS - elapsed)
-            time.sleep(sleep_for)
+            time.sleep(max(0, wait_time(consecutive_failures) - elapsed))
     except KeyboardInterrupt:
         log.info("shutting down, flushing remaining messages")
     finally:

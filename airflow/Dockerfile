@@ -10,4 +10,7 @@ USER airflow
 RUN pip install --no-cache-dir \
     "apache-airflow==${AIRFLOW_VERSION}" \
     apache-airflow-providers-apache-spark \
-    pyspark==4.0.1
+    pyspark==4.0.1 \
+    deltalake \
+    pandas \
+    pyarrow
