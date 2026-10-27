@@ -89,7 +89,7 @@ def main():
         .outputMode("append")
         .option("checkpointLocation", CHECKPOINT_PATH)
         .partitionBy("event_date")
-        .trigger(processingTime="1 minute")
+        .trigger(processingTime="5 minute")
         .start(SILVER_PATH)
     )
     query.awaitTermination()

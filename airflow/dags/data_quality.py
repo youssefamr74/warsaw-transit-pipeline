@@ -10,7 +10,7 @@ DQ_RESULTS = f"{LAKE}/gold/dq_results"
 with DAG(
     dag_id="data_quality",
     description="Freshness and volume checks on the lake, alerts to ntfy",
-    schedule="*/15 * * * *",
+    schedule="*/30 * * * *",
     start_date=datetime(2026, 10, 27),
     catchup=False,
     max_active_runs=1,

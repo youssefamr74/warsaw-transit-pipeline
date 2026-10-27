@@ -72,7 +72,7 @@ def main():
         .outputMode("append")
         .option("checkpointLocation", CHECKPOINT_PATH)
         .partitionBy("ingest_date")
-        .trigger(processingTime="1 minute")
+        .trigger(processingTime="5 minute")
         .start(BRONZE_PATH)
     )
 

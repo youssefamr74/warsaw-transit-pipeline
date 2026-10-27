@@ -42,7 +42,7 @@ def build_checks(lake: str) -> list[Check]:
         Check(
             "bronze_freshness_minutes", "bronze",
             f"SELECT epoch(now() - max(kafka_timestamp)) / 60 FROM {bronze} WHERE {recent_bronze}",
-            warn=10, fail=30, bad_when="above",
+            warn=12, fail=30, bad_when="above",
         ),
         Check(
             "silver_lag_minutes", "silver",
@@ -50,7 +50,7 @@ def build_checks(lake: str) -> list[Check]:
                     (SELECT max(kafka_timestamp) FROM {bronze} WHERE {recent_bronze})
                   - (SELECT max(ingested_ts) FROM {silver} WHERE {recent_silver})
                 ) / 60""",
-            warn=5, fail=15, bad_when="above",
+            warn=12, fail=30, bad_when="above",
         ),
         Check(
             "gold_freshness_minutes", "gold",
