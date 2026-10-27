@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from airflow.sdk import DAG, Param, task
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from wtp.alerts import task_failure_callback
 
 LAKE = "/opt/lake"
 WEATHER_BRONZE = f"{LAKE}/bronze/weather_raw"
@@ -32,6 +33,7 @@ with DAG(
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
         "execution_timeout": timedelta(minutes=30),
+        "on_failure_callback": task_failure_callback,
     },
     tags=["weather", "gold"],
 ) as dag:

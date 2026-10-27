@@ -13,4 +13,5 @@ RUN pip install --no-cache-dir \
     pyspark==4.0.1 \
     deltalake \
     pandas \
-    pyarrow
+    pyarrow \
+    duckdb
