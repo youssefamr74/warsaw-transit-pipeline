@@ -9,6 +9,7 @@ SOURCE_TIMEZONE = "Europe/Warsaw"
 LIVE_THRESHOLD_SECONDS = 120     
 FUTURE_TOLERANCE_SECONDS = 60    
 DEDUP_WATERMARK = "10 minutes"
+SERVICE_AREA = {"lat_min": 51.8, "lat_max": 52.8, "lon_min": 20.3, "lon_max": 21.9}
 
 
 def build_silver(bronze_df):
@@ -30,8 +31,8 @@ def build_silver(bronze_df):
         .filter(
             F.col("VehicleNumber").isNotNull()
             & F.col("event_time_utc").isNotNull()
-            & F.col("Lat").isNotNull()
-            & F.col("Lon").isNotNull()
+            & F.col("Lat").between(SERVICE_AREA["lat_min"], SERVICE_AREA["lat_max"])
+            & F.col("Lon").between(SERVICE_AREA["lon_min"], SERVICE_AREA["lon_max"])
         )
 
         # Keep only live readings (no ghosts & no readings from the future)
