@@ -1,3 +1,10 @@
+"""
+Gold batch job: line speeds per hour joined with that hour's weather, for one UTC day.
+
+Reads:  gold/line_hourly_speed, silver/weather_hourly
+Writes: gold/line_hourly   (one row per line per hour: sums for speed + weather + categories)
+"""
+
 import argparse
 import os
 import sys
@@ -7,10 +14,9 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 LAKE_MARKER = "/opt/lake/.lake-root"
-LINE_HOURLY_PATH = "/opt/lake/gold/line_hourly_speed"
+LINE_HOURLY_SPEED_PATH = "/opt/lake/gold/line_hourly_speed"
 WEATHER_SILVER_PATH = "/opt/lake/silver/weather_hourly"
-LINE_WEATHER_PATH = "/opt/lake/gold/line_hourly_speed_weather"
-CITY_WEATHER_PATH = "/opt/lake/gold/city_hourly_weather"
+LINE_HOURLY_PATH = "/opt/lake/gold/line_hourly"
 
 LIGHT_RAIN_MM = 1.0
 
@@ -56,7 +62,7 @@ def main():
     args = parse_args()
     spark = (
         SparkSession.builder
-        .appName(f"gold-speed-weather-{args.date}")
+        .appName(f"gold-line-hourly-{args.date}")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .config("spark.sql.session.timeZone", "UTC")
@@ -66,8 +72,12 @@ def main():
     spark.sparkContext.setLogLevel("WARN")
 
     speeds = (
-        spark.read.format("delta").load(LINE_HOURLY_PATH)
+        spark.read.format("delta").load(LINE_HOURLY_SPEED_PATH)
         .filter(F.col("event_date") == args.date)
+        .select(
+            "event_date", "hour_utc", "vehicle_type", "line",
+            "total_distance_m", "total_seconds", "segments", "vehicles",
+        )
     )
     weather = spark.read.format("delta").load(WEATHER_SILVER_PATH).select(
         "hour_utc", "temperature_2m", "precipitation", "rain", "showers",
@@ -75,22 +85,10 @@ def main():
     )
 
     # Left join: keep every speed hour, even if its weather is missing
-    line_weather = add_weather_categories(speeds.join(weather, on="hour_utc", how="left"))
+    line_hourly = add_weather_categories(speeds.join(weather, on="hour_utc", how="left"))
 
-    city_weather = add_weather_categories(
-        speeds.groupBy("event_date", "hour_utc", "hour_local", "vehicle_type")
-        .agg(
-            F.sum("total_distance_m").alias("total_distance_m"),
-            F.sum("total_seconds").alias("total_seconds"),
-            F.sum("vehicles").alias("vehicle_line_count"),
-        )
-        .withColumn("avg_speed_kmh", F.round(F.col("total_distance_m") / F.col("total_seconds") * 3.6, 2))
-        .join(weather, on="hour_utc", how="left")
-    )
-
-    overwrite_day(line_weather, LINE_WEATHER_PATH, args.date)
-    overwrite_day(city_weather, CITY_WEATHER_PATH, args.date)
-    print(f"gold weather done for {args.date}")
+    overwrite_day(line_hourly, LINE_HOURLY_PATH, args.date)
+    print(f"gold line_hourly done for {args.date}")
     spark.stop()
 
 

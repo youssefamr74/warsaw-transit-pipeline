@@ -1,4 +1,4 @@
-"""Data quality checks on the lake."""
+"""Data quality checks on the lake, run with DuckDB."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -29,7 +29,7 @@ def build_checks(lake: str) -> list[Check]:
     bronze = f"delta_scan('{lake}/bronze/vehicle_positions')"
     silver = f"delta_scan('{lake}/silver/vehicle_positions')"
     gold = f"delta_scan('{lake}/gold/line_hourly_speed')"
-    gold_weather = f"delta_scan('{lake}/gold/line_hourly_speed_weather')"
+    gold_weather = f"delta_scan('{lake}/gold/line_hourly')"
     weather = f"delta_scan('{lake}/silver/weather_hourly')"
 
     recent_bronze = "ingest_date >= current_date - 1"

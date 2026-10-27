@@ -15,6 +15,7 @@ TIME_WINDOWS = {
     "Evening (19-24)": (19, 24),
     "Night (0-7)": (0, 7),
 }
+MAX_COMPARED_LINES = 8
 
 # ---------- Sidebar filters ----------
 dates = data.available_dates()
@@ -30,6 +31,29 @@ picked = st.sidebar.date_input(
 start, end = (picked[0], picked[-1]) if isinstance(picked, (list, tuple)) else (picked, picked)
 days_with_data = [d for d in dates if start <= d <= end]
 
+line_options = data.available_lines(start, end)
+line_labels = {row.line: f"{row.line} ({row.vehicle_type})" for row in line_options.itertuples()}
+selected_lines = st.sidebar.multiselect(
+    "Lines",
+    options=list(line_labels),
+    format_func=line_labels.get,
+    placeholder="All lines",
+    help="Leave empty for all lines. Pick one or more to focus every chart on them.",
+)
+lines = tuple(selected_lines)
+
+compare = False
+if len(lines) > 1:
+    compare = st.sidebar.toggle(
+        "Compare lines separately", value=len(lines) <= MAX_COMPARED_LINES,
+        help="On: one curve per line. Off: the selected lines combined into one.",
+    )
+    if compare and len(lines) > MAX_COMPARED_LINES:
+        st.sidebar.caption(f"Tip: with more than {MAX_COMPARED_LINES} lines the chart gets crowded.")
+
+lines_text = ", ".join(lines) if lines else "all lines"
+lines_label = f"line {lines[0]}" if len(lines) == 1 else f"lines {lines_text}"
+
 # ---------- Header ----------
 st.title("Warsaw Transit Pulse")
 st.caption(
@@ -37,32 +61,54 @@ st.caption(
     "Spark Structured Streaming and Delta Lake, orchestrated by Airflow."
 )
 st.info(
-    f"Showing **{start:%d %b} to {end:%d %b %Y}**: {len(days_with_data)} day(s) with data. "
-    "Charts combine all selected days. Use the sidebar to pick a single day or a range."
+    f"Showing **{start:%d %b} to {end:%d %b %Y}** ({len(days_with_data)} day(s) with data), "
+    f"**{lines_label if lines else lines_text}**. Charts combine all selected days. Change dates and lines in the sidebar."
 )
 
 h = data.headline()
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Positions collected (all time)", f"{h['records']:,}")
-c2.metric("Days of data (all time)", h["days"])
-c3.metric("Vehicles tracked (all time)", f"{h['vehicles']:,}")
-c4.metric("Last update (UTC)", h["last_update"].strftime("%Y-%m-%d %H:%M"))
+c1.metric("Positions collected (all time)", f"{int(h['records']):,}")
+c2.metric("Days of data (all time)", int(h["days"]))
+c3.metric(
+    "Vehicles in service (busiest hour, last 24 h)",
+    f"{int(h['vehicles']):,}" if pd.notna(h["vehicles"]) else "–",
+)
+c4.metric("Latest hour of data (UTC)", h["last_update"].strftime("%Y-%m-%d %H:00"))
 
 # ---------- Map ----------
-st.subheader("Where are buses and trams slow?")
+st.subheader("Where is it slow?" if not lines else f"Where is it slow? {lines_label.capitalize()}")
 m1, m2 = st.columns(2)
 window = m1.selectbox("Time of day (Warsaw time)", list(TIME_WINDOWS), index=1)
-types = m2.multiselect("Vehicles", ["bus", "tram"], default=["bus", "tram"])
+if lines:
+    # The selected lines already decide the vehicle types
+    types = sorted(line_options[line_options.line.isin(lines)].vehicle_type.unique())
+    m2.markdown(f"**Vehicles:** {', '.join(types)} (from the selected lines)")
+else:
+    types = m2.multiselect("Vehicles", ["bus", "tram"], default=["bus", "tram"])
 
 if types:
     hour_from, hour_to = TIME_WINDOWS[window]
-    grid = data.speed_grid(start, end, tuple(sorted(types)), hour_from, hour_to)
+    # A single line has far fewer segments per square, so show squares with less data
+    min_segments = 30 if not lines else 5
+    grid = data.speed_grid(start, end, tuple(types), lines, hour_from, hour_to, min_segments)
     if grid.empty:
         st.warning("No data for this selection.")
     else:
-        # Colour: red = slow, green = fast, clipped to 5..35 km/h
-        t = ((grid["speed_kmh"] - 5) / 30).clip(0, 1)
-        grid["color"] = [[int(255 * (1 - x)), int(190 * x), 60, 170] for x in t]
+        # Colour scale: fixed for the whole city, relative to the selection for single lines,
+        # so a slow line still shows where along its route it is slowest
+        if lines:
+            low, high = grid["speed_kmh"].quantile([0.1, 0.9])
+        else:
+            low, high = 5.0, 35.0
+        t = ((grid["speed_kmh"] - low) / max(high - low, 1)).clip(0, 1)
+
+        def speed_color(x: float) -> list[int]:
+            """0 = red, 0.5 = yellow, 1 = green."""
+            if x < 0.5:
+                return [230, int(60 + 330 * x), 50, 190]          # red -> yellow
+            return [int(230 - 380 * (x - 0.5)), 200, 50, 190]     # yellow -> green
+
+        grid["color"] = [speed_color(x) for x in t]
         grid["polygon"] = [
             [[lon, lat], [lon + data.CELL_LON, lat],
              [lon + data.CELL_LON, lat + data.CELL_LAT], [lon, lat + data.CELL_LAT]]
@@ -82,10 +128,18 @@ if types:
             map_style="light",
             tooltip={"text": "{speed_kmh} km/h\n{segments} segments"},
         ))
+        if lines:
+            scale_text = (
+                f"Colours are relative to the selected {'line' if len(lines) == 1 else 'lines'}: "
+                f"red = {low:.0f} km/h or less (their slowest 10%), yellow = in between, "
+                f"green = {high:.0f} km/h or more (their fastest 10%). "
+            )
+        else:
+            scale_text = "Red = 5 km/h or less, yellow = about 20 km/h, green = 35 km/h or more. "
         st.caption(
-            "Each square is about 275 m wide. Red = slow (5 km/h or less), green = fast (35 km/h or more). "
+            "Each square is about 275 m wide. " + scale_text +
             "Commercial speed: stops at bus stops and traffic lights count, layovers at terminals don't. "
-            "Squares with fewer than 30 segments are hidden."
+            f"Squares with fewer than {min_segments} segments are hidden."
         )
 else:
     st.warning("Pick at least one vehicle type.")
@@ -94,51 +148,64 @@ else:
 st.subheader("Commercial speed by hour of day")
 st.caption(
     "Total distance ÷ total time in service, layovers at terminals excluded. Warsaw time. "
-    "Gaps in the line are hours without data. Hover a point to see how many hours it is based on."
+    "Gaps in the line are hours without data. Hover a point to see how much data it is based on."
 )
-sbh = data.speed_by_hour(start, end)
+if not lines:
+    group_by = "vehicle_type"          # all lines: buses vs trams
+elif len(lines) == 1 or compare:
+    group_by = "line"                  # one curve per selected line
+else:
+    group_by = "combined"              # selected lines as one curve
+sbh = data.speed_by_hour(start, end, lines, group_by)
 if sbh.empty:
-    st.warning("No data for the selected dates.")
+    st.warning("No data for this selection.")
 else:
     # Fill in all 24 hours so missing hours show as breaks instead of straight lines
     grid_index = pd.MultiIndex.from_product(
-        [range(24), sorted(sbh.vehicle_type.unique())], names=["hour", "vehicle_type"]
+        [range(24), sorted(sbh.series.unique(), key=str)], names=["hour", "series"]
     )
-    sbh = sbh.set_index(["hour", "vehicle_type"]).reindex(grid_index).reset_index()
+    sbh = sbh.set_index(["hour", "series"]).reindex(grid_index).reset_index()
     fig = px.line(
-        sbh, x="hour", y="speed_kmh", color="vehicle_type", markers=True,
-        hover_data=["hours_observed"],
+        sbh, x="hour", y="speed_kmh", color="series", markers=True,
+        hover_data=["hours_observed", "segments"],
         labels={
-            "hour": "Hour of day", "speed_kmh": "km/h", "vehicle_type": "",
-            "hours_observed": "Hours of data",
+            "hour": "Hour of day", "speed_kmh": "km/h", "series": "",
+            "hours_observed": "Hours of data", "segments": "Segments",
         },
     )
     fig.update_xaxes(dtick=1, range=[-0.5, 23.5])
     st.plotly_chart(fig, width="stretch")
 
-# ---------- Slowest and fastest lines ----------
-st.subheader("Slowest and fastest lines")
-lines = data.line_speeds(start, end)
-if lines.empty:
-    st.warning("Not enough data for the selected dates.")
+# ---------- Lines ----------
+lines_df = data.line_speeds(start, end, lines)
+if lines:
+    st.subheader("Selected lines")
+    if lines_df.empty:
+        st.warning("No data for the selected lines and dates.")
+    else:
+        st.dataframe(lines_df.round(1), hide_index=True, width="stretch")
 else:
-    left, right = st.columns(2)
-    left.markdown("**Slowest 10**")
-    left.dataframe(lines.head(10).round(1), hide_index=True, width="stretch")
-    right.markdown("**Fastest 10**")
-    right.dataframe(lines.tail(10).iloc[::-1].round(1), hide_index=True, width="stretch")
+    st.subheader("Slowest and fastest lines")
+    if lines_df.empty:
+        st.warning("Not enough data for the selected dates.")
+    else:
+        left, right = st.columns(2)
+        left.markdown("**Slowest 10**")
+        left.dataframe(lines_df.head(10).round(1), hide_index=True, width="stretch")
+        right.markdown("**Fastest 10**")
+        right.dataframe(lines_df.tail(10).iloc[::-1].round(1), hide_index=True, width="stretch")
 
 # ---------- Rain vs dry ----------
-st.subheader("Buses: dry vs wet hours")
-rd = data.rain_vs_dry(start, end)
+st.subheader("Dry vs wet hours: " + ("buses" if not lines else (lines_label if len(lines) == 1 else f"{lines_label}, combined")))
+rd = data.rain_vs_dry(start, end, lines)
 dry_hours = int(rd[rd.weather == "dry"].hours_observed.sum())
 wet_hours = int(rd[rd.weather == "wet"].hours_observed.sum())
 st.caption(
     "Each hour of the day is split by its weather, so 8:00 on dry days is compared with 8:00 on wet days. "
-    f"Based on {dry_hours} dry and {wet_hours} wet hours in the selected dates."
+    f"Based on {dry_hours} dry and {wet_hours} wet hours in the selection."
 )
 if rd.empty:
-    st.warning("No hours with both speed and weather data for the selected dates.")
+    st.warning("No hours with both speed and weather data for this selection.")
 else:
     fig = px.bar(
         rd, x="hour", y="speed_kmh", color="weather", barmode="group",
@@ -153,9 +220,13 @@ else:
 
 # ---------- Pipeline health ----------
 st.subheader("Pipeline health")
+st.caption("Not affected by the line filter: this is about the pipeline itself.")
 
 st.markdown("**Data collection: polls per hour (UTC)**")
-st.caption("About 290 polls an hour is normal. Missing bars are hours where nothing was collected.")
+st.caption(
+    "About 290 (daytime) to 360 (night) polls an hour is normal. "
+    "Missing bars are hours where nothing was collected."
+)
 pph = data.polls_per_hour(start, end)
 if not pph.empty:
     full_range = pd.date_range(pph.hour_utc.min(), pph.hour_utc.max(), freq="h")
