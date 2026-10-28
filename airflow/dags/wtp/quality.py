@@ -13,7 +13,7 @@ class Check:
     sql: str
     warn: float
     fail: float
-    bad_when: str 
+    bad_when: str
     on_missing: str = "fail"
 
 

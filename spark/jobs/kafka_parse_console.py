@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+from pyspark.sql.types import DoubleType, StringType, StructField, StructType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 KAFKA_TOPIC = "vehicle-positions"
@@ -36,7 +36,7 @@ def main():
         .load()
     )
     # Columns: key, value, topic, partition, offset, timestamp, timestampType
-  
+
     raw_df = kafka_df.select(
         F.col("value").cast("string").alias("raw_value"),
         F.col("partition"),

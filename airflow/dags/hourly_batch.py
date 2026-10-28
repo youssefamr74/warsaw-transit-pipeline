@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from airflow.sdk import DAG, Param, task
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.sdk import DAG, Param, task
 
 from wtp.alerts import task_failure_callback
 

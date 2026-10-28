@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta
 
-from airflow.sdk import DAG
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.sdk import DAG
 
 from wtp.alerts import task_failure_callback
 
 with DAG(
     dag_id="maintenance",
     description="Nightly OPTIMIZE (merge small files) and VACUUM (delete old files) on all Delta tables",
-    schedule="30 2 * * *",          
+    schedule="30 2 * * *",
     start_date=datetime(2026, 10, 27),
     catchup=False,
     max_active_runs=1,

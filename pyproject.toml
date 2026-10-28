@@ -1,0 +1,14 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["spark/jobs"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]   # pycodestyle, pyflakes, warnings, import order
+ignore = ["E501"]                 # long SQL strings are fine
+
+[tool.ruff.lint.isort]
+known-first-party = ["gold_speeds", "silver_positions", "wtp", "data"]

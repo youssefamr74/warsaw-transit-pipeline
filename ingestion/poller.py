@@ -7,11 +7,12 @@ and publishes each vehicle as one message to Kafka.
 import json
 import logging
 import os
+import signal
 import sys
 import time
 import uuid
 from datetime import datetime, timezone
-import signal
+
 import requests
 from confluent_kafka import Producer
 from dotenv import load_dotenv
@@ -120,7 +121,7 @@ def publish(producer: Producer, records: list[dict]) -> None:
             producer.poll(1)
             producer.produce(**kwargs)
         producer.poll(0)
-        
+
 
 
 # ---------------------------------------------------------------------------

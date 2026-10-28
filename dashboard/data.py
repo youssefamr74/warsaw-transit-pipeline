@@ -17,7 +17,7 @@ def _setting(name: str, default: str | None = None) -> str | None:
         return value
     try:
         return st.secrets.get(name, default)
-    except Exception: 
+    except Exception:
         return default
 
 

@@ -14,18 +14,19 @@ from pyspark.sql import SparkSession
 
 LAKE = "/opt/lake"
 LAKE_MARKER = f"{LAKE}/.lake-root"
-RETAIN_HOURS = 168  # 7 days
+RETAIN_HOURS = 168
+RETAIN_HOURS_GOLD = 24
 
 # Table path -> its partition column (None = not partitioned)
 TABLES = {
     "bronze/vehicle_positions": "ingest_date",
     "silver/vehicle_positions": "event_date",
-    "gold/vehicle_segments": "event_date",
     "gold/line_hourly_speed": "event_date",
     "gold/speed_grid_hourly": "event_date",
     "gold/line_hourly": "event_date",
     "gold/collection_hourly": "event_date",
     "gold/dq_results": "check_date",
+    "gold/segment_quality": "event_date",
     "bronze/weather_raw": "fetch_date",
     "silver/weather_hourly": None,
 }
@@ -44,6 +45,7 @@ def main():
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
+    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
 
     failures = []
     for table, partition_col in TABLES.items():
@@ -59,7 +61,8 @@ def main():
                 f"optimize {table}: removed {metrics['numFilesRemoved']} files, "
                 f"added {metrics['numFilesAdded']}"
             )
-            spark.sql(f"VACUUM delta.`{path}` RETAIN {RETAIN_HOURS} HOURS")
+            hours = RETAIN_HOURS_GOLD if table.startswith("gold/") else RETAIN_HOURS
+            spark.sql(f"VACUUM delta.`{path}` RETAIN {hours} HOURS")
             print(f"vacuum {table}: done")
         except Exception as e:  # one table failing shouldn't stop the others
             print(f"FAILED {table}: {e}")

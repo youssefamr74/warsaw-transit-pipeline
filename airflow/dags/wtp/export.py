@@ -133,7 +133,7 @@ def publish_to_github(folder: str, repo: str, token: str, branch: str = "main") 
     def call(method: str, url: str, payload: dict) -> dict:
         response = requests.request(method, url, json=payload, headers=headers, timeout=300)
         if response.status_code >= 400:
-            
+
             raise RuntimeError(f"GitHub API {method} {url} -> {response.status_code}: {response.text[:300]}")
         return response.json()
 
@@ -154,7 +154,7 @@ def publish_to_github(folder: str, repo: str, token: str, branch: str = "main") 
     commit_sha = call("POST", f"{api}/git/commits", {
         "message": f"Data export {stamp}",
         "tree": tree_sha,
-        "parents": [], 
+        "parents": [],
     })["sha"]
     call("PATCH", f"{api}/git/refs/heads/{branch}", {"sha": commit_sha, "force": True})
     return commit_sha

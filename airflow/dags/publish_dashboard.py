@@ -11,7 +11,7 @@ EXPORT_DIR = f"{LAKE}/serving/dashboard"
 with DAG(
     dag_id="publish_dashboard",
     description="Export the dashboard's gold tables as Parquet and publish them to the public data repo",
-    schedule="30 3 * * *",          
+    schedule="30 3 * * *",
     start_date=datetime(2026, 10, 28),
     catchup=False,
     max_active_runs=1,
