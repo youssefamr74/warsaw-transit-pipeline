@@ -8,12 +8,12 @@ import data
 st.set_page_config(page_title="Warsaw Transit Pulse", layout="wide")
 
 TIME_WINDOWS = {
-    "All day": (0, 24),
-    "Morning peak (7-10)": (7, 10),
-    "Midday (10-15)": (10, 15),
-    "Afternoon peak (15-19)": (15, 19),
-    "Evening (19-24)": (19, 24),
-    "Night (0-7)": (0, 7),
+    "All day": None,
+    "Morning peak (7-10)": "morning_peak",
+    "Midday (10-15)": "midday",
+    "Afternoon peak (15-19)": "afternoon_peak",
+    "Evening (19-24)": "evening",
+    "Night (0-7)": "night",
 }
 MAX_COMPARED_LINES = 8
 
@@ -27,7 +27,7 @@ st.sidebar.header("Filters")
 picked = st.sidebar.date_input(
     "Dates (UTC)", value=(dates[0], dates[-1]), min_value=dates[0], max_value=dates[-1],
 )
-# While the user is picking a range, Streamlit returns only the start date
+
 start, end = (picked[0], picked[-1]) if isinstance(picked, (list, tuple)) else (picked, picked)
 days_with_data = [d for d in dates if start <= d <= end]
 
@@ -80,22 +80,17 @@ st.subheader("Where is it slow?" if not lines else f"Where is it slow? {lines_la
 m1, m2 = st.columns(2)
 window = m1.selectbox("Time of day (Warsaw time)", list(TIME_WINDOWS), index=1)
 if lines:
-    # The selected lines already decide the vehicle types
     types = sorted(line_options[line_options.line.isin(lines)].vehicle_type.unique())
     m2.markdown(f"**Vehicles:** {', '.join(types)} (from the selected lines)")
 else:
     types = m2.multiselect("Vehicles", ["bus", "tram"], default=["bus", "tram"])
 
 if types:
-    hour_from, hour_to = TIME_WINDOWS[window]
-    # A single line has far fewer segments per square, so show squares with less data
     min_segments = 30 if not lines else 5
-    grid = data.speed_grid(start, end, tuple(types), lines, hour_from, hour_to, min_segments)
+    grid = data.speed_grid(start, end, tuple(types), lines, TIME_WINDOWS[window], min_segments)
     if grid.empty:
         st.warning("No data for this selection.")
     else:
-        # Colour scale: fixed for the whole city, relative to the selection for single lines,
-        # so a slow line still shows where along its route it is slowest
         if lines:
             low, high = grid["speed_kmh"].quantile([0.1, 0.9])
         else:
@@ -116,6 +111,32 @@ if types:
         ]
         grid["speed_kmh"] = grid["speed_kmh"].round(1)
 
+        def css_rgb(x: float) -> str:
+            r, g, b, _ = speed_color(x)
+            return f"rgb({r},{g},{b})"
+
+        if lines:
+            legend_title = f"Speed relative to {lines_label}: its slowest and fastest 10% of squares"
+        else:
+            legend_title = "Commercial speed (same scale for every selection)"
+        mid = (low + high) / 2
+        st.markdown(
+            f"""
+            <div style="max-width: 460px; margin: 4px 0 10px 0; font-size: 0.85rem;">
+              <div style="margin-bottom: 4px;"><b>{legend_title}</b></div>
+              <div style="height: 12px; border-radius: 6px;
+                          background: linear-gradient(to right, {css_rgb(0)}, {css_rgb(0.5)}, {css_rgb(1)});">
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 3px;">
+                <span>≤ {low:.0f} km/h · slow</span>
+                <span>{mid:.0f} km/h</span>
+                <span>fast · ≥ {high:.0f} km/h</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         layer = pdk.Layer(
             "PolygonLayer", grid,
             get_polygon="polygon", get_fill_color="color",
@@ -128,18 +149,10 @@ if types:
             map_style="light",
             tooltip={"text": "{speed_kmh} km/h\n{segments} segments"},
         ))
-        if lines:
-            scale_text = (
-                f"Colours are relative to the selected {'line' if len(lines) == 1 else 'lines'}: "
-                f"red = {low:.0f} km/h or less (their slowest 10%), yellow = in between, "
-                f"green = {high:.0f} km/h or more (their fastest 10%). "
-            )
-        else:
-            scale_text = "Red = 5 km/h or less, yellow = about 20 km/h, green = 35 km/h or more. "
         st.caption(
-            "Each square is about 275 m wide. " + scale_text +
+            "Each square is about 275 m wide. "
             "Commercial speed: stops at bus stops and traffic lights count, layovers at terminals don't. "
-            f"Squares with fewer than {min_segments} segments are hidden."
+            f"Squares with fewer than {min_segments} segments are hidden. Hover a square for its exact speed."
         )
 else:
     st.warning("Pick at least one vehicle type.")
@@ -160,7 +173,6 @@ sbh = data.speed_by_hour(start, end, lines, group_by)
 if sbh.empty:
     st.warning("No data for this selection.")
 else:
-    # Fill in all 24 hours so missing hours show as breaks instead of straight lines
     grid_index = pd.MultiIndex.from_product(
         [range(24), sorted(sbh.series.unique(), key=str)], names=["hour", "series"]
     )
@@ -235,7 +247,6 @@ if not pph.empty:
     st.plotly_chart(fig, width="stretch")
 
 checks = data.latest_checks()
-# Count before adding icons, since the counts compare the plain status values
 passing = (checks.status == "pass").sum()
 failing = (checks.status == "fail").sum()
 st.markdown(

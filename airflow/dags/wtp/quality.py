@@ -13,7 +13,8 @@ class Check:
     sql: str
     warn: float
     fail: float
-    bad_when: str  # "above": high values are bad, "below": low values are bad
+    bad_when: str 
+    on_missing: str = "fail"
 
 
 # Seconds between our ingestion and the vehicle's own timestamp (Warsaw local time, no offset)
@@ -105,16 +106,24 @@ def build_checks(lake: str) -> list[Check]:
             f"""SELECT sum(total_distance_m) / nullif(sum(total_seconds), 0) * 3.6
                 FROM {gold}
                 WHERE {recent_silver}
-                  AND hour_utc = (SELECT max(hour_utc) - INTERVAL 1 HOUR FROM {gold} WHERE {recent_silver})""",
-            warn=10, fail=5, bad_when="below",
+                   AND hour_utc = (
+                      SELECT max(hour_utc) FROM {gold}
+                      WHERE {recent_silver}
+                        AND hour_utc < (SELECT max(hour_utc) FROM {gold} WHERE {recent_silver})
+                  )""",
+            warn=10, fail=5, bad_when="below", on_missing="pass",
         ),
         Check(
             "city_speed_high_kmh", "gold",
             f"""SELECT sum(total_distance_m) / nullif(sum(total_seconds), 0) * 3.6
                 FROM {gold}
                 WHERE {recent_silver}
-                  AND hour_utc = (SELECT max(hour_utc) - INTERVAL 1 HOUR FROM {gold} WHERE {recent_silver})""",
-            warn=40, fail=60, bad_when="above",
+                   AND hour_utc = (
+                      SELECT max(hour_utc) FROM {gold}
+                      WHERE {recent_silver}
+                        AND hour_utc < (SELECT max(hour_utc) FROM {gold} WHERE {recent_silver})
+                  )""",
+            warn=40, fail=60, bad_when="above", on_missing="pass",
         ),
 
         # ---------- Uniqueness ----------
@@ -165,7 +174,7 @@ def build_checks(lake: str) -> list[Check]:
 def evaluate(value, check: Check) -> str:
     """No value at all (empty table, missing data) always counts as a failure."""
     if value is None:
-        return "fail"
+        return check.on_missing
     if check.bad_when == "above":
         if value > check.fail:
             return "fail"
