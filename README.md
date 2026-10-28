@@ -110,7 +110,7 @@ About 20 million raw positions reached bronze in the first 4 days (this includes
 
 **Limitations:**
 - This is a learning and portfolio project, not built for commercial use. The whole pipeline runs on my laptop and I don't keep it running 24/7, so the data has gaps (the polls per hour chart on the dashboard shows them).
-- Speeds are observed, not compared against the timetable (see above).
+- Speeds are observed, not compared against the timetable (see below).
 - Results so far cover a few days only.
 
 ![Speed by hour](docs/images/speed_by_hour.png)
