@@ -13,44 +13,16 @@ I wanted something closer to a production pipeline than a project on a static da
 
 ## Architecture
 
-```
-  City of Warsaw API
-          │  every 10 s, buses and trams
-          ▼
-  ┌──────────────┐  Python, Docker. Retries with backoff, circuit breaker
-  │    poller    │  after 3 failed polls, one Kafka message per vehicle
-  └──────┬───────┘
-         ▼
-  ┌──────────────┐  KRaft mode, 3 partitions, 14 days retention
-  │    Kafka     │  (enough to replay any layer from scratch)
-  └──────┬───────┘
-         ▼
-  ┌──────────────┐  Spark Structured Streaming → Delta Lake
-  │    bronze    │  raw message + Kafka partition/offset
-  └──────┬───────┘
-         ▼
-  ┌──────────────┐  Spark Structured Streaming → Delta Lake
-  │    silver    │  UTC timestamps, live vehicles only, service area
-  └──────┬───────┘  filter, deduplication with a watermark
-         ▼
-  ┌──────────────┐  Airflow, hourly Spark batch jobs
-  │     gold     │  speed per line/hour, speed map grid,
-  └──────┬───────┘  hourly weather from Open-Meteo
-         │
-         ├────────► data quality checks every 30 min → ntfy alert
-         ▼
-  ┌──────────────┐  nightly: DuckDB exports ~3 MB of Parquet
-  │   publish    │  to a public data repo
-  └──────┬───────┘
-         ▼
-     Streamlit dashboard (DuckDB inside the app)
-```
+![How the data flows](docs/images/pipeline.png)
+
 
 **Stack:** Python, Kafka 4.1, Spark 4.0 (Structured Streaming and batch), Delta Lake 4.0, Airflow 3, DuckDB, Streamlit, Docker Compose.
 
 ---
 
 ## Implementation details
+
+![One bus position from the API to the dashboard](docs/images/record_journey.png)
 
 **Ingestion.** The poller calls the API for buses and trams every 10 seconds and sends one message per vehicle, with the receive time and a poll id. After 3 failed polls in a row it backs off exponentially, up to 10 minutes.
 
